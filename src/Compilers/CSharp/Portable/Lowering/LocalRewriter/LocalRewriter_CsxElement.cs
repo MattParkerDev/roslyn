@@ -16,22 +16,30 @@ namespace Microsoft.CodeAnalysis.CSharp
         // <Button Color="red">
         //     <Icon Name="star" />
         //     Some text
+        //     {items}     ← IEnumerable<IElement?> spread
         // </Button>
         //
-        // Lowers to:
+        // Non-spread case lowers to:
         //
         // H.CreateElement(
-        //     Button.Render,                           // Func<ButtonProps, H.CSX.Element>
-        //     new ButtonProps(Color: "red"),           // TProps
-        //     [H.CreateElement(Icon.Render, new IconProps(Name: "star")),
-        //      H.CSX.CreateTextNode("Some text")])    // params CSX.Element[] (collection expr)
+        //     Button.Render,
+        //     new ButtonProps(Color: "red"),
+        //     new IElement?[] { child1, child2, ... })
         //
-        // The BoundCsxElement already contains:
-        //   FactoryMethod     — the unbound generic CreateElement method symbol
-        //   ComponentMethod   — the concrete component method (e.g. Button.Render)
-        //   ComponentArgument — BoundTypeExpression for the component type (unused here)
-        //   PropsArgument     — BoundObjectCreationExpression for the props record
-        //   Children          — already-bound child expressions
+        // Spread case lowers to:
+        //
+        // H.CreateElement(
+        //     Button.Render,
+        //     new ButtonProps(Color: "red"),
+        //     __BuildChildren())
+        //
+        // where __BuildChildren is inlined as:
+        //
+        //   var __list = new List<IElement?>();
+        //   __list.Add(child1);
+        //   foreach (var __item in spreadExpr) __list.Add(__item);
+        //   __list.Add(child2);
+        //   result = __list.ToArray()
         // -----------------------------------------------------------------------
 
         public override BoundNode VisitCsxElement(BoundCsxElement node)
@@ -45,7 +53,6 @@ namespace Microsoft.CodeAnalysis.CSharp
                 : null;
 
             // ---- 3. Construct CreateElement<TProps> ----
-            // The factory method may be generic (CreateElement<TProps>). Construct it.
             var factoryMethod = node.FactoryMethod;
             if (factoryMethod.IsGenericMethod && propsType is not null)
             {
@@ -53,14 +60,6 @@ namespace Microsoft.CodeAnalysis.CSharp
             }
 
             // ---- 4. Build the component delegate arg ----
-            // The first parameter of CreateElement<TProps> is Func<TProps, Element>.
-            // We build: new Func<TProps, Element>(Button.Render)
-            //
-            // For a static method delegate, the canonical bound representation uses a
-            // BoundTypeExpression (the containing type) as the argument, and sets methodOpt
-            // to the resolved method. This is what the binder produces for `new Func<T,R>(Cls.M)`
-            // and avoids triggering the ExtensionMethodReferenceRewriter assertion that fires
-            // when argument is a BoundMethodGroup for a static method.
             BoundExpression componentArg;
             if (factoryMethod.Parameters.Length > 0)
             {
@@ -82,7 +81,6 @@ namespace Microsoft.CodeAnalysis.CSharp
             }
             else
             {
-                // Shouldn't normally happen; fall back to the bound expression.
                 componentArg = VisitExpression(node.ComponentArgument);
             }
 
@@ -91,29 +89,148 @@ namespace Microsoft.CodeAnalysis.CSharp
                 ? VisitExpression(node.PropsArgument)
                 : null;
 
-            // ---- 6. Lower children and wrap in a collection expression ----
-            // Use _factory.ArrayOrEmpty so:
-            //   • 0 children → Array.Empty<Element>()   (no allocation)
-            //   • N children → new Element[] { c0, c1, … }
-            // At the CLR level Element[] and Element?[] are the same type; nullability
-            // is a compile-time annotation only.
+            // ---- 6. Lower children ----
+            var elementType = node.Type; // CSX.IElement
             var loweredChildren = VisitList(node.Children);
-            var elementType = node.Type; // CSX.Element
-            var childrenArg = _factory.ArrayOrEmpty(elementType, loweredChildren);
+            var childrenArg = BuildChildrenArg(node, elementType, loweredChildren);
 
-            // ---- 7. Assemble args matching CreateElement(component, props, children[]) ----
+            // ---- 7. Assemble args ----
             ImmutableArray<BoundExpression> args;
             if (propsArg is not null)
-            {
                 args = ImmutableArray.Create(componentArg, propsArg, childrenArg);
-            }
             else
-            {
-                // No props (zero-parameter component); omit props arg.
                 args = ImmutableArray.Create(componentArg, childrenArg);
-            }
 
             return _factory.StaticCall(factoryMethod, args);
+        }
+
+        /// <summary>
+        /// Builds the children array argument for <c>CreateElement</c>.
+        /// <list type="bullet">
+        ///   <item>No children → <c>Array.Empty&lt;T&gt;()</c></item>
+        ///   <item>No spreads → <c>new T[] { c0, c1, … }</c></item>
+        ///   <item>Has spreads → <c>List&lt;T&gt;</c> with <c>Add</c>/<c>AddRange</c>, then <c>ToArray()</c></item>
+        /// </list>
+        /// </summary>
+        private BoundExpression BuildChildrenArg(
+            BoundCsxElement node,
+            TypeSymbol elementType,
+            ImmutableArray<BoundExpression> loweredChildren)
+        {
+            if (loweredChildren.IsEmpty)
+                return _factory.ArrayOrEmpty(elementType, loweredChildren);
+
+            // Check whether any child is a spread (IEnumerable<elementType>).
+            bool hasSpread = false;
+            foreach (var child in loweredChildren)
+            {
+                if (IsSpreadChild(child, elementType))
+                {
+                    hasSpread = true;
+                    break;
+                }
+            }
+
+            if (!hasSpread)
+                return _factory.ArrayOrEmpty(elementType, loweredChildren);
+
+            // ---- Spread path: build via List<elementType> ----
+            var listOfT = _factory.WellKnownType(WellKnownType.System_Collections_Generic_List_T)
+                .Construct(ImmutableArray.Create(elementType));
+
+            var listCtor = ((MethodSymbol)_factory.WellKnownMember(WellKnownMember.System_Collections_Generic_List_T__ctor))
+                .AsMember(listOfT);
+            var listAdd = ((MethodSymbol)_factory.WellKnownMember(WellKnownMember.System_Collections_Generic_List_T__Add))
+                .AsMember(listOfT);
+            var listAddRange = ((MethodSymbol)_factory.WellKnownMember(WellKnownMember.System_Collections_Generic_List_T__AddRange))
+                .AsMember(listOfT);
+            var listToArray = ((MethodSymbol)_factory.WellKnownMember(WellKnownMember.System_Collections_Generic_List_T__ToArray))
+                .AsMember(listOfT);
+
+            // var __list = new List<elementType>();
+            var listLocal = _factory.SynthesizedLocal(listOfT, syntax: node.Syntax);
+            var listLocalExpr = _factory.Local(listLocal);
+
+            var sideEffects = ArrayBuilder<BoundExpression>.GetInstance();
+
+            // __list = new List<elementType>()
+            sideEffects.Add(_factory.AssignmentExpression(
+                listLocalExpr,
+                new BoundObjectCreationExpression(
+                    syntax: node.Syntax,
+                    constructor: listCtor,
+                    constructorsGroup: ImmutableArray.Create(listCtor),
+                    arguments: ImmutableArray<BoundExpression>.Empty,
+                    argumentNamesOpt: default,
+                    argumentRefKindsOpt: default,
+                    expanded: false,
+                    argsToParamsOpt: default,
+                    defaultArguments: default,
+                    constantValueOpt: null,
+                    initializerExpressionOpt: null,
+                    wasTargetTyped: false,
+                    type: listOfT)));
+
+            // For each child: __list.Add(child) or __list.AddRange(spreadExpr)
+            foreach (var child in loweredChildren)
+            {
+                if (IsSpreadChild(child, elementType))
+                    sideEffects.Add(_factory.Call(listLocalExpr, listAddRange, child));
+                else
+                    sideEffects.Add(_factory.Call(listLocalExpr, listAdd, child));
+            }
+
+            // Result expression: __list.ToArray()
+            var toArrayCall = _factory.Call(listLocalExpr, listToArray);
+
+            return new BoundSequence(
+                syntax: node.Syntax,
+                locals: ImmutableArray.Create(listLocal),
+                sideEffects: sideEffects.ToImmutableAndFree(),
+                value: toArrayCall,
+                type: toArrayCall.Type);
+        }
+
+        /// <summary>
+        /// Returns true if <paramref name="child"/> is a spread expression —
+        /// its type implements <c>IEnumerable&lt;elementType&gt;</c> rather than
+        /// being a single <paramref name="elementType"/> value.
+        /// </summary>
+        private bool IsSpreadChild(BoundExpression child, TypeSymbol elementType)
+        {
+            var childType = child.Type;
+            if (childType is null)
+                return false;
+
+            // A non-spread child's type equals elementType (single element).
+            if (childType.Equals(elementType, TypeCompareKind.AllIgnoreOptions))
+                return false;
+
+            var ienumerableT = _compilation.GetSpecialType(SpecialType.System_Collections_Generic_IEnumerable_T);
+
+            // Check if it IS IEnumerable<elementType> directly.
+            if (childType is NamedTypeSymbol named
+                && named.OriginalDefinition.Equals(ienumerableT, TypeCompareKind.ConsiderEverything)
+                && named.TypeArgumentsWithAnnotationsNoUseSiteDiagnostics.Length == 1)
+            {
+                var typeArg = named.TypeArgumentsWithAnnotationsNoUseSiteDiagnostics[0].Type;
+                if (typeArg.Equals(elementType, TypeCompareKind.AllIgnoreOptions))
+                    return true;
+            }
+
+            // Check all implemented interfaces.
+            foreach (var iface in childType.AllInterfacesNoUseSiteDiagnostics)
+            {
+                if (iface.OriginalDefinition.Equals(ienumerableT, TypeCompareKind.ConsiderEverything)
+                    && iface.TypeArgumentsWithAnnotationsNoUseSiteDiagnostics.Length == 1)
+                {
+                    var typeArg = iface.TypeArgumentsWithAnnotationsNoUseSiteDiagnostics[0].Type;
+                    if (typeArg.Equals(elementType, TypeCompareKind.AllIgnoreOptions))
+                        return true;
+                }
+            }
+
+            return false;
         }
     }
 }

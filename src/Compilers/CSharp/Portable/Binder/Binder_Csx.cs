@@ -261,6 +261,8 @@ namespace Microsoft.CodeAnalysis.CSharp
                     diagnostics.Add(ErrorCode.ERR_CsxPropTypeMismatch, attr.Location,
                         valueExpr.Type?.ToDisplayString() ?? "?", param.Type.ToDisplayString(), attrName);
                     hasError = true;
+                    // Wrap in BadExpression so flow analysis doesn't assert WasConverted on the raw expr.
+                    valueExpr = BadExpression(attr, valueExpr);
                 }
                 else if (valueExpr.NeedsToBeConverted() || valueExpr.Type is null)
                 {
@@ -392,6 +394,13 @@ namespace Microsoft.CodeAnalysis.CSharp
                     {
                         // Apply an identity conversion to satisfy the WasConverted debug assertion.
                         childExpr = GenerateConversionForAssignment(elementType, boundExpr, diagnostics);
+                    }
+                    else if (exprType is not null && IsEnumerableOfElement(exprType, elementType))
+                    {
+                        // Spread child: IEnumerable<elementType> or IEnumerable<elementType?>.
+                        // Store as-is; the lowerer will emit a foreach loop to flatten it.
+                        boundExpr.WasCompilerGenerated = true;
+                        childExpr = boundExpr;
                     }
                     else if (exprType is not null
                         && GetSpecialTypeMember(SpecialMember.System_Object__ToString, BindingDiagnosticBag.Discarded, csxExpr) is MethodSymbol toStringMethod
@@ -617,6 +626,41 @@ namespace Microsoft.CodeAnalysis.CSharp
 
             // Accept both Element[] and Element?[] — ignore nullable annotation on element type.
             return arr.ElementType.Equals(elementType, TypeCompareKind.AllIgnoreOptions);
+        }
+
+        /// <summary>
+        /// Returns true if <paramref name="type"/> implements <c>IEnumerable&lt;elementType&gt;</c>
+        /// or <c>IEnumerable&lt;elementType?&gt;</c> — i.e. it is a valid spread child sequence.
+        /// </summary>
+        private bool IsEnumerableOfElement(TypeSymbol type, TypeSymbol elementType)
+        {
+            var ienumerableT = Compilation.GetSpecialType(SpecialType.System_Collections_Generic_IEnumerable_T);
+            if (ienumerableT.IsErrorType())
+                return false;
+
+            // Check the type itself and all its interfaces for IEnumerable<elementType>.
+            foreach (var iface in type.AllInterfacesNoUseSiteDiagnostics)
+            {
+                if (iface.OriginalDefinition.Equals(ienumerableT, TypeCompareKind.ConsiderEverything)
+                    && iface.TypeArgumentsWithAnnotationsNoUseSiteDiagnostics.Length == 1)
+                {
+                    var typeArg = iface.TypeArgumentsWithAnnotationsNoUseSiteDiagnostics[0].Type;
+                    if (typeArg.Equals(elementType, TypeCompareKind.AllIgnoreOptions))
+                        return true;
+                }
+            }
+
+            // Also check if type IS IEnumerable<elementType> directly.
+            if (type is NamedTypeSymbol named
+                && named.OriginalDefinition.Equals(ienumerableT, TypeCompareKind.ConsiderEverything)
+                && named.TypeArgumentsWithAnnotationsNoUseSiteDiagnostics.Length == 1)
+            {
+                var typeArg = named.TypeArgumentsWithAnnotationsNoUseSiteDiagnostics[0].Type;
+                if (typeArg.Equals(elementType, TypeCompareKind.AllIgnoreOptions))
+                    return true;
+            }
+
+            return false;
         }
 
         /// <summary>
