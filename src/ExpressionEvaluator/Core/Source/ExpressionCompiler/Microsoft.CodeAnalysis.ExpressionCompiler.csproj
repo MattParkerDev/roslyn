@@ -27,16 +27,33 @@
     <PackageVersion>5.6.0</PackageVersion>
     <AssemblyVersion>5.6.0.0</AssemblyVersion>
     <FileVersion>5.6.0.0</FileVersion>
-    <Authors>Microsoft</Authors>
+    <Authors>.NET Foundation and contributors</Authors>
+    <Copyright></Copyright>
+    <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <PackageProjectUrl>https://github.com/dotnet/roslyn</PackageProjectUrl>
-    <RepositoryUrl>https://github.com/dotnet/roslyn</RepositoryUrl>
-    <PackageDescription>Roslyn debugger expression compiler core (Microsoft.CodeAnalysis.ExpressionEvaluator.ExpressionCompiler). Built from the Roslyn 5.6.0 source against the released Microsoft.CodeAnalysis.Common 5.6.0 package.</PackageDescription>
+    <PackageProjectUrl>https://github.com/MattParkerDev/roslyn</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/MattParkerDev/roslyn</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <!-- Skip the repo's _AppendCommonPackageDescription target so no "More details at https://aka.ms/roslyn-packages"
+         boilerplate is appended to the package description. -->
+    <SourceControlInformationFeatureSupported>false</SourceControlInformationFeatureSupported>
+    <Description>Roslyn debugger expression compiler core (Microsoft.CodeAnalysis.ExpressionEvaluator.ExpressionCompiler), with the Microsoft.VisualStudio.Debugger.Engine (Dkm) dependency removed. Built from the Roslyn 5.6.0 source (MIT).</Description>
+    <PackageDescription>Roslyn debugger expression compiler core (Microsoft.CodeAnalysis.ExpressionEvaluator.ExpressionCompiler), with the Microsoft.VisualStudio.Debugger.Engine (Dkm) dependency removed. Built from the Roslyn 5.6.0 source (MIT).</PackageDescription>
     <PackageTags>Roslyn CodeAnalysis Compiler Debugger ExpressionEvaluator</PackageTags>
   </PropertyGroup>
   <Target Name="ValidateExpressionEvaluatorNuGetPack" BeforeTargets="Build;Pack" Condition="'$(ExpressionEvaluatorNuGetPack)' == 'true'">
     <Error Condition="'$(Configuration)' != 'Release'"
            Text="ExpressionEvaluatorNuGetPack requires a Release build (-c Release): the released Microsoft.CodeAnalysis packages are Release-built and this source only references the matching internal compiler types in Release." />
+  </Target>
+  <!-- Arcade's ProjectDefaults.targets forces Copyright and PackageRequireLicenseAcceptance after the project
+       evaluates; re-assert the fork's values right before nuspec generation. Authors is set in the property group
+       above (arcade sets it in props, which the project overrides). -->
+  <Target Name="OverrideExpressionEvaluatorPackMetadata" BeforeTargets="GenerateNuspec" Condition="'$(ExpressionEvaluatorNuGetPack)' == 'true'">
+    <PropertyGroup>
+      <Authors>.NET Foundation and contributors</Authors>
+      <Copyright></Copyright>
+      <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
+    </PropertyGroup>
   </Target>
   <ItemGroup Label="Linked Files">
     <Compile Include="..\..\..\..\Test\PdbUtilities\Shared\DateTimeUtilities.cs">
