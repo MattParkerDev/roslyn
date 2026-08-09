@@ -10,10 +10,40 @@
     <ApplyNgenOptimization>full</ApplyNgenOptimization>
     <IsSymbolPublishingPackage>true</IsSymbolPublishingPackage>
   </PropertyGroup>
+  <!--
+    Optional "NuGet pack" mode, disabled by default so the repository build is unaffected.
+    When enabled (-p:ExpressionEvaluatorNuGetPack=true -c Release) this project is built against the
+    released Microsoft.CodeAnalysis compiler NuGet packages instead of the in-repo compiler sources,
+    and packs a real (non-.Symbols) NuGet package that pairs with the released compiler.
+  -->
+  <PropertyGroup Condition="'$(ExpressionEvaluatorNuGetPack)' == 'true'">
+    <IsSymbolPublishingPackage>false</IsSymbolPublishingPackage>
+    <IsPackable>true</IsPackable>
+    <IsShippingPackage>true</IsShippingPackage>
+    <PackageId>$(AssemblyName)</PackageId>
+    <PackageVersion>5.6.0</PackageVersion>
+    <AssemblyVersion>5.6.0.0</AssemblyVersion>
+    <FileVersion>5.6.0.0</FileVersion>
+    <Authors>Microsoft</Authors>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/dotnet/roslyn</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/dotnet/roslyn</RepositoryUrl>
+    <PackageDescription>Roslyn C# debugger expression compiler (Microsoft.CodeAnalysis.CSharp.ExpressionEvaluator.ExpressionCompiler). Compiles C# expressions in debugger scenarios. Built from the Roslyn 5.6.0 source against the released Microsoft.CodeAnalysis.CSharp 5.6.0 package.</PackageDescription>
+    <PackageTags>Roslyn CodeAnalysis Compiler Debugger ExpressionEvaluator CSharp</PackageTags>
+  </PropertyGroup>
+  <Target Name="ValidateExpressionEvaluatorNuGetPack" BeforeTargets="Build;Pack" Condition="'$(ExpressionEvaluatorNuGetPack)' == 'true'">
+    <Error Condition="'$(Configuration)' != 'Release'"
+           Text="ExpressionEvaluatorNuGetPack requires a Release build (-c Release): the released Microsoft.CodeAnalysis packages are Release-built and this source only references the matching internal compiler types in Release." />
+  </Target>
   <ItemGroup Label="Project References">
-    <ProjectReference Include="..\..\..\..\Compilers\Core\Portable\Microsoft.CodeAnalysis.csproj" />
-    <ProjectReference Include="..\..\..\..\Compilers\CSharp\Portable\Microsoft.CodeAnalysis.CSharp.csproj" />
+    <ProjectReference Include="..\..\..\..\Compilers\Core\Portable\Microsoft.CodeAnalysis.csproj" Condition="'$(ExpressionEvaluatorNuGetPack)' != 'true'" />
+    <ProjectReference Include="..\..\..\..\Compilers\CSharp\Portable\Microsoft.CodeAnalysis.CSharp.csproj" Condition="'$(ExpressionEvaluatorNuGetPack)' != 'true'" />
     <ProjectReference Include="..\..\..\Core\Source\ExpressionCompiler\Microsoft.CodeAnalysis.ExpressionCompiler.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(ExpressionEvaluatorNuGetPack)' == 'true'">
+    <PackageVersion Update="Microsoft.CodeAnalysis.Common" Version="5.6.0" />
+    <PackageVersion Update="Microsoft.CodeAnalysis.CSharp" Version="5.6.0" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" VersionOverride="5.6.0" />
   </ItemGroup>
   <ItemGroup>
     <VsdConfigXmlFiles Include="CSharpExpressionCompiler.vsdconfigxml" />
