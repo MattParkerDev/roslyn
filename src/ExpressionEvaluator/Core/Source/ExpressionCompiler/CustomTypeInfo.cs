@@ -7,67 +7,12 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Text;
 using Microsoft.CodeAnalysis.PooledObjects;
-using Microsoft.VisualStudio.Debugger.Evaluation.ClrCompilation;
 
 namespace Microsoft.CodeAnalysis.ExpressionEvaluator
 {
     internal static class CustomTypeInfo
     {
         internal static readonly Guid PayloadTypeId = new Guid("108766CE-DF68-46EE-B761-0DCB7AC805F1");
-
-        internal static DkmClrCustomTypeInfo? Create(
-            ReadOnlyCollection<byte>? dynamicFlags,
-            ReadOnlyCollection<string?>? tupleElementNames)
-        {
-            var payload = Encode(dynamicFlags, tupleElementNames);
-            return (payload == null) ? null : DkmClrCustomTypeInfo.Create(PayloadTypeId, payload);
-        }
-
-        /// <summary>
-        /// Return a copy of the custom type info without tuple element names.
-        /// </summary>
-        internal static DkmClrCustomTypeInfo? WithNoTupleElementNames(this DkmClrCustomTypeInfo typeInfo)
-        {
-            if (typeInfo == null || typeInfo.Payload == null || typeInfo.PayloadTypeId != PayloadTypeId)
-            {
-                return typeInfo;
-            }
-
-            var payload = typeInfo.Payload;
-            int length = payload[0] + 1;
-            if (length == payload.Count)
-            {
-                return typeInfo;
-            }
-
-            return DkmClrCustomTypeInfo.Create(PayloadTypeId, new ReadOnlyCollection<byte>(CopyBytes(payload, 0, length)));
-        }
-
-        /// <summary>
-        /// Return a copy of the custom type info with the leading dynamic flag removed.
-        /// There are no changes to tuple element names since this is used for walking
-        /// into an array element type only which does not affect tuple element names.
-        /// </summary>
-        internal static DkmClrCustomTypeInfo? SkipOne(DkmClrCustomTypeInfo customInfo)
-        {
-            if (customInfo == null)
-            {
-                return customInfo;
-            }
-
-            Decode(
-                customInfo.PayloadTypeId,
-                customInfo.Payload,
-                out var dynamicFlags,
-                out var tupleElementNames);
-
-            if (dynamicFlags == null)
-            {
-                return customInfo;
-            }
-
-            return Create(DynamicFlagsCustomTypeInfo.SkipOne(dynamicFlags), tupleElementNames);
-        }
 
         internal static string? GetTupleElementNameIfAny(ReadOnlyCollection<string> tupleElementNames, int index)
         {
