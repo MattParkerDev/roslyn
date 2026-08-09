@@ -11,13 +11,42 @@
     <ApplyNgenOptimization>full</ApplyNgenOptimization>
     <IsSymbolPublishingPackage>true</IsSymbolPublishingPackage>
   </PropertyGroup>
+  <!--
+    Optional "NuGet pack" mode, disabled by default so the repository build is unaffected.
+    When enabled (-p:ExpressionEvaluatorNuGetPack=true -c Release) this project is built against the
+    released Microsoft.CodeAnalysis compiler NuGet packages instead of the in-repo compiler sources,
+    and packs a real (non-.Symbols) NuGet package that pairs with the released compiler.
+  -->
+  <PropertyGroup Condition="'$(ExpressionEvaluatorNuGetPack)' == 'true'">
+    <IsSymbolPublishingPackage>false</IsSymbolPublishingPackage>
+    <IsPackable>true</IsPackable>
+    <IsShippingPackage>true</IsShippingPackage>
+    <PackageId>$(AssemblyName)</PackageId>
+    <PackageVersion>5.6.0</PackageVersion>
+    <AssemblyVersion>5.6.0.0</AssemblyVersion>
+    <FileVersion>5.6.0.0</FileVersion>
+    <Authors>Microsoft</Authors>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/dotnet/roslyn</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/dotnet/roslyn</RepositoryUrl>
+    <PackageDescription>Roslyn debugger expression compiler core (Microsoft.CodeAnalysis.ExpressionEvaluator.ExpressionCompiler). Built from the Roslyn 5.6.0 source against the released Microsoft.CodeAnalysis.Common 5.6.0 package.</PackageDescription>
+    <PackageTags>Roslyn CodeAnalysis Compiler Debugger ExpressionEvaluator</PackageTags>
+  </PropertyGroup>
+  <Target Name="ValidateExpressionEvaluatorNuGetPack" BeforeTargets="Build;Pack" Condition="'$(ExpressionEvaluatorNuGetPack)' == 'true'">
+    <Error Condition="'$(Configuration)' != 'Release'"
+           Text="ExpressionEvaluatorNuGetPack requires a Release build (-c Release): the released Microsoft.CodeAnalysis packages are Release-built and this source only references the matching internal compiler types in Release." />
+  </Target>
   <ItemGroup Label="Linked Files">
     <Compile Include="..\..\..\..\Test\PdbUtilities\Shared\DateTimeUtilities.cs">
       <Link>Shared\DateTimeUtilities.cs</Link>
     </Compile>
   </ItemGroup>
-  <ItemGroup Label="Project References">
+  <ItemGroup Label="Project References" Condition="'$(ExpressionEvaluatorNuGetPack)' != 'true'">
     <ProjectReference Include="..\..\..\..\Compilers\Core\Portable\Microsoft.CodeAnalysis.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(ExpressionEvaluatorNuGetPack)' == 'true'">
+    <PackageVersion Update="Microsoft.CodeAnalysis.Common" Version="5.6.0" />
+    <PackageReference Include="Microsoft.CodeAnalysis.Common" VersionOverride="5.6.0" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Microsoft.CodeAnalysis.CSharp.ExpressionEvaluator.ExpressionCompiler" />
