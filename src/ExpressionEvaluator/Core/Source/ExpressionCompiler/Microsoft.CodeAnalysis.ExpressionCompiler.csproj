@@ -21,7 +21,9 @@
     <IsSymbolPublishingPackage>false</IsSymbolPublishingPackage>
     <IsPackable>true</IsPackable>
     <IsShippingPackage>true</IsShippingPackage>
-    <PackageId>$(AssemblyName)</PackageId>
+    <!-- NuGet package ID prefix. The assembly name (and thus IVT/strong-name identity) is unchanged; only the package ID is prefixed. -->
+    <ExpressionEvaluatorPackageIdPrefix>MP.</ExpressionEvaluatorPackageIdPrefix>
+    <PackageId>$(ExpressionEvaluatorPackageIdPrefix)$(AssemblyName)</PackageId>
     <PackageVersion>5.6.0</PackageVersion>
     <AssemblyVersion>5.6.0.0</AssemblyVersion>
     <FileVersion>5.6.0.0</FileVersion>
