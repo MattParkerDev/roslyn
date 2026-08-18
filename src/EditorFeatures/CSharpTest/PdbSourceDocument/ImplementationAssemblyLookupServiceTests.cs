@@ -128,6 +128,41 @@ public sealed class ImplementationAssemblyLookupServiceTests : AbstractPdbSource
         });
 
     [Fact]
+    public Task NuGetFrameworkPackLayout()
+        => RunTestAsync(async path =>
+        {
+            MarkupTestFile.GetSpan("""
+            public class C
+            {
+                // A change
+                public event System.EventHandler [|E|] { add { } remove { } }
+            }
+            """, out var metadataSource, out var expectedSpan);
+
+            var refDir = Directory.CreateDirectory(Path.Combine(path, "packages", "MyPack.Ref", "1.0.1", "ref", "net6.0")).FullName;
+            var dataDir = Directory.CreateDirectory(Path.Combine(path, "packages", "MyPack.Ref", "1.0.1", "data")).FullName;
+            var sharedDir = Directory.CreateDirectory(Path.Combine(path, "dotnet", "shared", "MyPack", "1.0.2")).FullName;
+
+            // Compile reference assembly
+            var sourceText = SourceText.From(metadataSource, encoding: Encoding.UTF8);
+            var (project, symbol) = await CompileAndFindSymbolAsync(refDir, Location.Embedded, Location.Embedded, sourceText, c => c.GetMember("C.E"), buildReferenceAssembly: true);
+
+            // Compile implementation assembly
+            CompileTestSource(sharedDir, sourceText, project, Location.Embedded, Location.Embedded, buildReferenceAssembly: false, windowsPdb: false);
+
+            // Create FrameworkList.xml
+            File.WriteAllText(Path.Combine(dataDir, "FrameworkList.xml"), """
+                <FileList FrameworkName="MyPack">
+                </FileList>
+                """);
+
+            var service = new ImplementationAssemblyLookupService(Path.Combine(path, "dotnet"));
+
+            Assert.True(service.TryFindImplementationAssemblyPath(GetDllPath(refDir), out var implementationDll));
+            Assert.Equal(GetDllPath(sharedDir), implementationDll);
+        });
+
+    [Fact]
     public Task FollowTypeForwards()
         => RunTestAsync(async path =>
         {

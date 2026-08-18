@@ -28,6 +28,8 @@ internal sealed class ImplementationAssemblyLookupService : IImplementationAssem
 
     private static readonly string PathSeparatorString = Path.DirectorySeparatorChar.ToString();
 
+    private readonly string? _dotNetRoot;
+
     // Cache for any type forwards. Key is the dll being inspected. Value is a dictionary
     // of namespace and type name, to the assembly name that the type is forwarded to
     private readonly Dictionary<string, Dictionary<(string @namespace, string typeName), string>?> _typeForwardCache = new(StringComparer.OrdinalIgnoreCase);
@@ -36,13 +38,22 @@ internal sealed class ImplementationAssemblyLookupService : IImplementationAssem
     [ImportingConstructor]
     [Obsolete(MefConstruction.ImportingConstructorMessage, error: true)]
     public ImplementationAssemblyLookupService()
+        : this(RuntimeHostInfo.GetToolDotNetRoot(logger: null))
     {
+    }
+
+    internal ImplementationAssemblyLookupService(string? dotNetRoot)
+    {
+        _dotNetRoot = dotNetRoot;
     }
 
     public bool TryFindImplementationAssemblyPath(string referencedDllPath, [NotNullWhen(true)] out string? implementationDllPath)
     {
         var pathParts = referencedDllPath.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         if (TryNugetLibToRef(pathParts, out implementationDllPath))
+            return true;
+
+        if (TryNugetFrameworkRefToSharedSdk(pathParts, _dotNetRoot, out implementationDllPath))
             return true;
 
         if (TryTargetingPackToSharedSdk(pathParts, out implementationDllPath))
@@ -143,6 +154,57 @@ internal sealed class ImplementationAssemblyLookupService : IImplementationAssem
         return false;
     }
 
+    private static bool TryNugetFrameworkRefToSharedSdk(string[] pathParts, string? dotNetRoot, [NotNullWhen(true)] out string? implementationDllPath)
+    {
+        implementationDllPath = null;
+        if (pathParts is not [.., var packName, var packVersion, "ref", var targetFramework, var dllFileName] ||
+            !packName.EndsWith(".Ref", StringComparison.OrdinalIgnoreCase) ||
+            dotNetRoot is null)
+        {
+            return false;
+        }
+
+        var referencedDllPath = string.Join(PathSeparatorString, pathParts);
+        var sdkName = TryGetFrameworkName(referencedDllPath);
+        if (sdkName is null)
+            return false;
+
+        implementationDllPath = IOUtilities.PerformIO<string?>(() =>
+        {
+            var sharedFrameworkDirectory = Path.Combine(dotNetRoot, "shared", sdkName);
+            var exactPath = Path.Combine(sharedFrameworkDirectory, packVersion, dllFileName);
+            if (File.Exists(exactPath))
+                return exactPath;
+
+            if (!Version.TryParse(packVersion, out var requestedVersion))
+                return null;
+
+            Version? bestVersion = null;
+            string? bestPath = null;
+            foreach (var versionDirectory in Directory.EnumerateDirectories(sharedFrameworkDirectory))
+            {
+                if (!Version.TryParse(Path.GetFileName(versionDirectory), out var version) ||
+                    version.Major != requestedVersion.Major ||
+                    version.Minor != requestedVersion.Minor ||
+                    bestVersion is not null && version <= bestVersion)
+                {
+                    continue;
+                }
+
+                var pathToTry = Path.Combine(versionDirectory, dllFileName);
+                if (File.Exists(pathToTry))
+                {
+                    bestVersion = version;
+                    bestPath = pathToTry;
+                }
+            }
+
+            return bestPath;
+        });
+
+        return implementationDllPath is not null;
+    }
+
     private static bool TryTargetingPackToSharedSdk(string[] pathParts, [NotNullWhen(true)] out string? implementationDllPath)
     {
         implementationDllPath = null;
@@ -151,25 +213,7 @@ internal sealed class ImplementationAssemblyLookupService : IImplementationAssem
 
         var referencedDllPath = string.Join(PathSeparatorString, pathParts);
 
-        // We try to get the shared sdk name from the FrameworkList.xml file, in the data dir
-        // eg. C:\Program Files\dotnet\packs\Microsoft.NETCore.App.Ref\6.0.5\data\FrameworkList.xml
-        var frameworkXml = Path.Combine(referencedDllPath, "..", "..", "..", "data", "FrameworkList.xml");
-
-        string? sdkName;
-        try
-        {
-            using var fr = File.OpenRead(frameworkXml);
-            using var xr = XmlReader.Create(fr);
-            xr.Read();
-            sdkName = xr.GetAttribute("FrameworkName");
-        }
-        catch
-        {
-            // This could be a file read error, or XML error, but we don't really care, as we're only trying to
-            // use a heuristic to provide better results, we don't have to be super resiliant to all things.
-            return false;
-        }
-
+        var sdkName = TryGetFrameworkName(referencedDllPath);
         if (sdkName is null)
             return false;
 
@@ -187,6 +231,27 @@ internal sealed class ImplementationAssemblyLookupService : IImplementationAssem
         }
 
         return false;
+    }
+
+    private static string? TryGetFrameworkName(string referencedDllPath)
+    {
+        // We try to get the shared sdk name from the FrameworkList.xml file in the data dir.
+        // eg. C:\Program Files\dotnet\packs\Microsoft.NETCore.App.Ref\6.0.5\data\FrameworkList.xml
+        var frameworkXml = Path.Combine(referencedDllPath, "..", "..", "..", "data", "FrameworkList.xml");
+
+        try
+        {
+            using var fr = File.OpenRead(frameworkXml);
+            using var xr = XmlReader.Create(fr);
+            xr.Read();
+            return xr.GetAttribute("FrameworkName");
+        }
+        catch
+        {
+            // This could be a file read error, or XML error, but we don't really care, as we're only trying to
+            // use a heuristic to provide better results, we don't have to be super resiliant to all things.
+            return null;
+        }
     }
 
     private static Dictionary<(string, string), string>? GetAllTypeForwards(MetadataReader md)
