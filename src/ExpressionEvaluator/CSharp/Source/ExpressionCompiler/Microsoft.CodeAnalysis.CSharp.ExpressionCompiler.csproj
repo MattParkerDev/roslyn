@@ -23,9 +23,9 @@
     <!-- NuGet package ID prefix. The assembly name (and thus IVT/strong-name identity) is unchanged; only the package ID is prefixed. -->
     <ExpressionEvaluatorPackageIdPrefix>MP.</ExpressionEvaluatorPackageIdPrefix>
     <PackageId>$(ExpressionEvaluatorPackageIdPrefix)$(AssemblyName)</PackageId>
-    <PackageVersion>5.6.0</PackageVersion>
-    <AssemblyVersion>5.6.0.0</AssemblyVersion>
-    <FileVersion>5.6.0.0</FileVersion>
+    <PackageVersion>5.9.0</PackageVersion>
+    <AssemblyVersion>5.9.0.0</AssemblyVersion>
+    <FileVersion>5.9.0.0</FileVersion>
     <Authors>.NET Foundation and contributors</Authors>
     <Copyright></Copyright>
     <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
@@ -36,8 +36,8 @@
     <!-- Skip the repo's _AppendCommonPackageDescription target so no "More details at https://aka.ms/roslyn-packages"
          boilerplate is appended to the package description. -->
     <SourceControlInformationFeatureSupported>false</SourceControlInformationFeatureSupported>
-    <Description>Roslyn C# debugger expression compiler (Microsoft.CodeAnalysis.CSharp.ExpressionEvaluator.ExpressionCompiler), with the Microsoft.VisualStudio.Debugger.Engine (Dkm) dependency removed. Built from the Roslyn 5.6.0 source (MIT).</Description>
-    <PackageDescription>Roslyn C# debugger expression compiler (Microsoft.CodeAnalysis.CSharp.ExpressionEvaluator.ExpressionCompiler), with the Microsoft.VisualStudio.Debugger.Engine (Dkm) dependency removed. Built from the Roslyn 5.6.0 source (MIT).</PackageDescription>
+    <Description>Roslyn C# debugger expression compiler (Microsoft.CodeAnalysis.CSharp.ExpressionEvaluator.ExpressionCompiler), with the Microsoft.VisualStudio.Debugger.Engine (Dkm) dependency removed. Built from the Roslyn 5.9.0 source (MIT).</Description>
+    <PackageDescription>Roslyn C# debugger expression compiler (Microsoft.CodeAnalysis.CSharp.ExpressionEvaluator.ExpressionCompiler), with the Microsoft.VisualStudio.Debugger.Engine (Dkm) dependency removed. Built from the Roslyn 5.9.0 source (MIT).</PackageDescription>
     <PackageTags>Roslyn CodeAnalysis Compiler Debugger ExpressionEvaluator CSharp</PackageTags>
   </PropertyGroup>
   <Target Name="ValidateExpressionEvaluatorNuGetPack" BeforeTargets="Build;Pack" Condition="'$(ExpressionEvaluatorNuGetPack)' == 'true'">
@@ -60,9 +60,9 @@
     <ProjectReference Include="..\..\..\Core\Source\ExpressionCompiler\Microsoft.CodeAnalysis.ExpressionCompiler.csproj" />
   </ItemGroup>
   <ItemGroup Condition="'$(ExpressionEvaluatorNuGetPack)' == 'true'">
-    <PackageVersion Update="Microsoft.CodeAnalysis.Common" Version="5.6.0" />
-    <PackageVersion Update="Microsoft.CodeAnalysis.CSharp" Version="5.6.0" />
-    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" VersionOverride="5.6.0" />
+    <PackageVersion Update="Microsoft.CodeAnalysis.Common" Version="5.9.0" />
+    <PackageVersion Update="Microsoft.CodeAnalysis.CSharp" Version="5.9.0" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" VersionOverride="5.9.0" />
   </ItemGroup>
   <ItemGroup>
     <VsdConfigXmlFiles Include="CSharpExpressionCompiler.vsdconfigxml" />
